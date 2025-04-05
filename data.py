@@ -45,6 +45,11 @@ def load_data(cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
         - src_vocab: source vocabulary extracted from training data
         - trg_vocab: target vocabulary extracted from training data
     """
+    # --- Configuration options for handling different datasets ---
+    num_joints = cfg["data"].get("num_joints", 75)  # Default: 75 (25 joints * 3 coordinates)
+    label_type = cfg["data"].get("label_type", "gloss")  # Default: "gloss"
+    # --- End of configuration options ---
+
     data_cfg = cfg["data"]
     # Source, Target and Files postfixes
     src_lang = data_cfg["src"]
@@ -62,6 +67,11 @@ def load_data(cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
     trg_size = cfg["model"]["trg_size"] + 1
     # Skip frames is used to skip a set proportion of target frames, to simplify the model requirements
     skip_frames = data_cfg.get("skip_frames", 1)
+
+    # --- Adjust target size based on the configured number of joints ---
+    # This ensures the target size matches the expected skeleton representation.
+    trg_size = num_joints + 1  # +1 for the counter
+    # --- End of target size adjustment ---
 
     EOS_TOKEN = '</s>'
     tok_fun = lambda s: list(s) if level == "char" else s.split()
@@ -105,7 +115,7 @@ def load_data(cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
                                     lambda x: len(vars(x)['src'])
                                     <= max_sent_length
                                     and len(vars(x)['trg'])
-                                    <= max_sent_length)
+                                    <= max_sent_length, num_joints=num_joints, label_type=label_type)  # Pass num_joints
 
     src_max_size = data_cfg.get("src_voc_limit", sys.maxsize)
     src_min_freq = data_cfg.get("src_voc_min_freq", 1)
@@ -116,7 +126,7 @@ def load_data(cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
 
     # Create a target vocab just as big as the required target vector size -
     # So that len(trg_vocab) is # of joints + 1 (for the counter)
-    trg_vocab = [None]*trg_size
+    trg_vocab = [None] * trg_size
 
     # Create the Validation Data
     dev_data = SignProdDataset(path=dev_path,
@@ -124,7 +134,7 @@ def load_data(cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
                                   trg_size=trg_size,
                                   fields=(src_field, reg_trg_field, files_field),
                                   skip_frames=skip_frames)
-
+    # , num_joints=num_joints, label_type=label_type) # Pass num_joints
     # Create the Testing Data
     test_data = SignProdDataset(
         path=test_path,
@@ -132,7 +142,7 @@ def load_data(cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
         trg_size=trg_size,
         fields=(src_field, reg_trg_field, files_field),
         skip_frames=skip_frames)
-
+    #, num_joints=num_joints, label_type=label_type) # Pass num_joints
     src_field.vocab = src_vocab
 
     return train_data, dev_data, test_data, src_vocab, trg_vocab
@@ -198,7 +208,7 @@ def make_data_iter(dataset: Dataset,
 class SignProdDataset(data.Dataset):
     """Defines a dataset for machine translation."""
 
-    def __init__(self, path, exts, fields, trg_size, skip_frames=1, **kwargs):
+    def __init__(self, path, exts, fields, trg_size, skip_frames=1, num_joints=75, label_type="gloss", **kwargs):  # Add num_joints and label_type
         """Create a TranslationDataset given paths and fields.
 
         Arguments:
@@ -209,7 +219,7 @@ class SignProdDataset(data.Dataset):
             Remaining keyword arguments: Passed to the constructor of
                 data.Dataset.
         """
-
+        self.num_joints = num_joints  # Store num_joints
         if not isinstance(fields[0], (tuple, list)):
             fields = [('src', fields[0]), ('trg', fields[1]), ('file_paths', fields[2])]
 
@@ -226,22 +236,45 @@ class SignProdDataset(data.Dataset):
             for src_line, trg_line, files_line in zip(src_file, trg_file, files_file):
                 i+= 1
 
-                # Strip away the "\n" at the end of the line
-                src_line, trg_line, files_line = src_line.strip(), trg_line.strip(), files_line.strip()
+                # Strip whitespace and newlines
+                src_line = src_line.strip()
+                trg_line = trg_line.strip()
+                files_line = files_line.strip()
 
-                # Split target into joint coordinate values
-                trg_line = trg_line.split(" ")
-                if len(trg_line) == 1:
+                # --- Process target (skeleton) data ---
+                try:
+                    # Assuming space-separated joint coordinates
+                    trg_values = trg_line.split()
+                    if len(trg_values) < self.num_joints:
+                        print(f"Warning: Incomplete skeleton data in line {i} of {trg_path}. Skipping.")
+                        continue
+
+                    # Convert to float, handling potential errors
+                    trg_line = [(float(v) + 1e-8) for v in trg_values]  # Add small value for numerical stability
+
+                    # Reshape into frames, skipping frames if specified
+                    frame_size = self.num_joints + 1 # +1 for counter
+                    trg_frames = [trg_line[j:j + frame_size] for j in range(0, len(trg_line), frame_size * skip_frames)]
+
+                    if not trg_frames:  # Skip if no frames extracted
+                        print(f"Warning: No valid frames in line {i} of {trg_path}. Skipping.")
+                        continue
+
+                except ValueError as e:
+                    print(f"Error processing skeleton data in line {i} of {trg_path}: {e}. Skipping.")
                     continue
-                # Turn each joint into a float value, with 1e-8 for numerical stability
-                trg_line = [(float(joint) + 1e-8) for joint in trg_line]
-                # Split up the joints into frames, using trg_size as the amount of coordinates in each frame
-                # If using skip frames, this just skips over every Nth frame
-                trg_frames = [trg_line[i:i + trg_size] for i in range(0, len(trg_line), trg_size*skip_frames)]
+                # --- End of processing target data ---
 
-                # Create a dataset examples out of the Source, Target Frames and FilesPath
-                if src_line != '' and trg_line != '':
-                    examples.append(data.Example.fromlist(
-                        [src_line, trg_frames, files_line], fields))
+                # --- Process source (label) data ---
+                if label_type == "text" or label_type == "gloss":
+                    # Assuming space-separated words or glosses
+                    src_line = src_line
+                else:
+                    print(f"Warning: Unsupported label type '{label_type}'. Assuming gloss.")
+                # --- End of processing source data ---
+
+                # Add example if source and target are valid
+                if src_line and trg_frames:
+                    examples.append(data.Example.fromlist([src_line, trg_frames, files_line], fields))
 
         super(SignProdDataset, self).__init__(examples, fields, **kwargs)

@@ -11,6 +11,10 @@ data:
     skip_frames: 1   # Skip frames in the data, to reduce the data input size
     src_vocab: "./Configs/src_vocab.txt"
 
+    # New options for generic ISL datasets:
+    num_joints: 75  # Number of joints in the skeleton data (default: 75)
+    label_type: "gloss"  # Type of labels ("text" or "gloss") (default: "gloss")
+
 training:
     random_seed: 27   # Random seed for initialisation
     optimizer: "adam"   # Chosen optimiser (adam, ..)
