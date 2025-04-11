@@ -41,6 +41,10 @@ def extract_mediapipe_features(video_path: str, skip_face: bool = False) -> Dict
         Dictionary containing extracted features
     """
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"Error: Could not open video file: {video_path}")
+        return None
+        
     features = {
         'pose': [],
         'left_hand': [],
@@ -105,7 +109,12 @@ def process_video(video_path: str, output_dir: str, skip_face: bool = False) -> 
     Returns:
         Path to the saved features file
     """
+    print(f"Processing video: {video_path}")
     features = extract_mediapipe_features(video_path, skip_face)
+    
+    if features is None:
+        print(f"Skipping video {video_path} due to error")
+        return None
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -113,6 +122,7 @@ def process_video(video_path: str, output_dir: str, skip_face: bool = False) -> 
     # Save features
     output_path = os.path.join(output_dir, f"{Path(video_path).stem}.npy")
     np.save(output_path, features)
+    print(f"Saved features to: {output_path}")
     
     return output_path
 
@@ -133,6 +143,11 @@ def create_phoenix_format_files(data_dir: str, output_dir: str, split_ratio: Tup
     
     # Get all feature files
     feature_files = [f for f in os.listdir(data_dir) if f.endswith('.npy')]
+    if not feature_files:
+        print(f"Warning: No feature files found in {data_dir}")
+        return
+        
+    print(f"Found {len(feature_files)} feature files")
     random.shuffle(feature_files)
     
     # Split data
@@ -144,6 +159,8 @@ def create_phoenix_format_files(data_dir: str, output_dir: str, split_ratio: Tup
     dev_files = feature_files[train_end:dev_end]
     test_files = feature_files[dev_end:]
     
+    print(f"Splitting data: {len(train_files)} train, {len(dev_files)} dev, {len(test_files)} test")
+    
     # Create symlinks
     tmp_dir = os.path.join("Data", "tmp")
     os.makedirs(os.path.join(tmp_dir, "train"), exist_ok=True)
@@ -152,6 +169,7 @@ def create_phoenix_format_files(data_dir: str, output_dir: str, split_ratio: Tup
     
     # Process each split
     for split, files in [("train", train_files), ("dev", dev_files), ("test", test_files)]:
+        print(f"Processing {split} split...")
         # Create symlinks
         for file in files:
             src = os.path.join(data_dir, file)
@@ -195,10 +213,24 @@ def main():
     parser.add_argument("--phoenix-dir", default="Data/isl_dataset", help="Directory to save Phoenix format files")
     args = parser.parse_args()
     
+    # Check if data directory exists
+    if not os.path.exists(args.data_dir):
+        print(f"Error: Data directory {args.data_dir} does not exist")
+        return
+        
+    # List all video files
+    video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv')
+    video_files = [f for f in os.listdir(args.data_dir) if f.lower().endswith(video_extensions)]
+    
+    if not video_files:
+        print(f"Error: No video files found in {args.data_dir}")
+        print(f"Supported extensions: {', '.join(video_extensions)}")
+        return
+        
+    print(f"Found {len(video_files)} video files to process")
+    
     # Process videos
     print("Processing videos...")
-    video_files = [f for f in os.listdir(args.data_dir) if f.endswith(('.mp4', '.avi', '.mov'))]
-    
     for video_file in tqdm(video_files):
         video_path = os.path.join(args.data_dir, video_file)
         process_video(video_path, args.output_dir, args.skip_face)
