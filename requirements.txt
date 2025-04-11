@@ -172,3 +172,16 @@ Werkzeug==0.16.0
 wrapt==1.11.2
 xkit==0.0.0
 zope.interface==4.3.2
+
+# ISL dataset processing dependencies
+sentencepiece>=0.1.96
+mediapipe>=0.8.10
+opencv-python>=4.5.0
+openpyxl>=3.0.0
+kaggle>=1.5.12
+kagglehub>=0.1.0
+fairseq>=0.10.0
+onnx>=1.10.0
+onnxruntime>=1.10.0
+tensorflow>=2.6.0
+tensorflow-lite>=2.6.0
