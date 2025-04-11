@@ -13,6 +13,9 @@ import shutil
 from pathlib import Path
 from tqdm import tqdm
 import openpyxl
+import argparse
+from typing import List, Dict, Tuple
+import random
 
 # Create needed directories
 DATA_DIR = Path('Data')
@@ -31,63 +34,92 @@ for dataset_type in ['word_level', 'sentence_level']:
 mp_holistic = mp.solutions.holistic
 mp_drawing = mp.solutions.drawing_utils
 
-def extract_mediapipe_features(image_path):
-    """Extract MediaPipe features from an image"""
-    image = cv2.imread(str(image_path))
-    if image is None:
-        print(f"Warning: Could not read image: {image_path}")
-        return None
+def extract_mediapipe_features(video_path: str, skip_face: bool = False) -> Dict:
+    """
+    Extract MediaPipe features from a video file.
     
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    Args:
+        video_path: Path to the video file
+        skip_face: Whether to skip face landmarks extraction
+        
+    Returns:
+        Dictionary containing extracted features
+    """
+    cap = cv2.VideoCapture(video_path)
+    features = {
+        'pose': [],
+        'left_hand': [],
+        'right_hand': [],
+        'face': []
+    }
     
     with mp_holistic.Holistic(
-        static_image_mode=True,
+        static_image_mode=False,
         model_complexity=2,
-        enable_segmentation=False,
-        refine_face_landmarks=True
+        enable_segmentation=True,
+        min_detection_confidence=0.5
     ) as holistic:
-        results = holistic.process(image)
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            # Convert BGR to RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Process frame
+            results = holistic.process(frame_rgb)
+            
+            # Extract features
+            if results.pose_landmarks:
+                pose_features = []
+                for landmark in results.pose_landmarks.landmark:
+                    pose_features.extend([landmark.x, landmark.y, landmark.z])
+                features['pose'].append(pose_features)
+            
+            if results.left_hand_landmarks:
+                left_hand_features = []
+                for landmark in results.left_hand_landmarks.landmark:
+                    left_hand_features.extend([landmark.x, landmark.y, landmark.z])
+                features['left_hand'].append(left_hand_features)
+            
+            if results.right_hand_landmarks:
+                right_hand_features = []
+                for landmark in results.right_hand_landmarks.landmark:
+                    right_hand_features.extend([landmark.x, landmark.y, landmark.z])
+                features['right_hand'].append(right_hand_features)
+            
+            if not skip_face and results.face_landmarks:
+                face_features = []
+                for landmark in results.face_landmarks.landmark:
+                    face_features.extend([landmark.x, landmark.y, landmark.z])
+                features['face'].append(face_features)
+    
+    cap.release()
+    return features
+
+def process_video(video_path: str, output_dir: str, skip_face: bool = False) -> str:
+    """
+    Process a single video and save its features.
+    
+    Args:
+        video_path: Path to the video file
+        output_dir: Directory to save features
+        skip_face: Whether to skip face landmarks extraction
         
-        # Extract keypoints
-        # Pose landmarks: 33 landmarks with x, y, z, visibility
-        pose = []
-        if results.pose_landmarks:
-            for landmark in results.pose_landmarks.landmark:
-                # Scale down the coordinates by dividing by 3 as per Phoenix14T format
-                pose.extend([landmark.x/3, landmark.y/3, landmark.z/3, landmark.visibility/3])
-        else:
-            pose = [0.0] * (33 * 4)
-        
-        # Face landmarks: 478 landmarks with x, y, z
-        face = []
-        if results.face_landmarks:
-            for landmark in results.face_landmarks.landmark:
-                # Scale down the coordinates by dividing by 3
-                face.extend([landmark.x/3, landmark.y/3, landmark.z/3])
-        else:
-            face = [0.0] * (478 * 3)
-        
-        # Left hand landmarks: 21 landmarks with x, y, z
-        left_hand = []
-        if results.left_hand_landmarks:
-            for landmark in results.left_hand_landmarks.landmark:
-                # Scale down the coordinates by dividing by 3
-                left_hand.extend([landmark.x/3, landmark.y/3, landmark.z/3])
-        else:
-            left_hand = [0.0] * (21 * 3)
-        
-        # Right hand landmarks: 21 landmarks with x, y, z
-        right_hand = []
-        if results.right_hand_landmarks:
-            for landmark in results.right_hand_landmarks.landmark:
-                # Scale down the coordinates by dividing by 3
-                right_hand.extend([landmark.x/3, landmark.y/3, landmark.z/3])
-        else:
-            right_hand = [0.0] * (21 * 3)
-        
-        # Combine all features
-        keypoints = pose + face + left_hand + right_hand
-        return np.array(keypoints, dtype=np.float32)
+    Returns:
+        Path to the saved features file
+    """
+    features = extract_mediapipe_features(video_path, skip_face)
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Save features
+    output_path = os.path.join(output_dir, f"{Path(video_path).stem}.npy")
+    np.save(output_path, features)
+    
+    return output_path
 
 def process_word_level(word_frames_dir, word_details_path):
     """Process the word level data from the ISL-CSLRT dataset"""
@@ -478,14 +510,98 @@ def process_dataset():
     
     return True
 
-if __name__ == "__main__":
-    success = process_dataset()
+def create_phoenix_format_files(data_dir: str, output_dir: str, split_ratio: Tuple[float, float, float] = (0.7, 0.15, 0.15)):
+    """
+    Create Phoenix14T format files from the processed data.
     
-    if success:
-        print("ISL-CSLRT dataset processing complete!")
-        print("Data is ready in Phoenix14T format with .skels, .gloss, .text, and .files extensions")
-        print("Next steps:")
-        print("1. Configure the model: Update Configs/Base.yaml to set data paths and model parameters")
-        print("2. Train the model: python training.py --config Configs/Base.yaml")
-    else:
-        print("Dataset processing failed. Please check the error messages above.") 
+    Args:
+        data_dir: Directory containing processed features
+        output_dir: Directory to save Phoenix format files
+        split_ratio: Train/Dev/Test split ratio
+    """
+    # Create output directories
+    word_level_dir = os.path.join(output_dir, "word_level")
+    sentence_level_dir = os.path.join(output_dir, "sentence_level")
+    os.makedirs(word_level_dir, exist_ok=True)
+    os.makedirs(sentence_level_dir, exist_ok=True)
+    
+    # Get all feature files
+    feature_files = [f for f in os.listdir(data_dir) if f.endswith('.npy')]
+    random.shuffle(feature_files)
+    
+    # Split data
+    n_files = len(feature_files)
+    train_end = int(n_files * split_ratio[0])
+    dev_end = train_end + int(n_files * split_ratio[1])
+    
+    train_files = feature_files[:train_end]
+    dev_files = feature_files[train_end:dev_end]
+    test_files = feature_files[dev_end:]
+    
+    # Create symlinks
+    tmp_dir = os.path.join("Data", "tmp")
+    os.makedirs(os.path.join(tmp_dir, "train"), exist_ok=True)
+    os.makedirs(os.path.join(tmp_dir, "dev"), exist_ok=True)
+    os.makedirs(os.path.join(tmp_dir, "test"), exist_ok=True)
+    
+    # Process each split
+    for split, files in [("train", train_files), ("dev", dev_files), ("test", test_files)]:
+        # Create symlinks
+        for file in files:
+            src = os.path.join(data_dir, file)
+            dst = os.path.join(tmp_dir, split, file)
+            if not os.path.exists(dst):
+                os.symlink(os.path.abspath(src), dst)
+        
+        # Create Phoenix format files
+        with open(os.path.join(word_level_dir, f"{split}.skels"), "w") as f:
+            f.write("\n".join([f"{file[:-4]}" for file in files]))
+        
+        with open(os.path.join(word_level_dir, f"{split}.gloss"), "w") as f:
+            f.write("\n".join([f"{file[:-4]}" for file in files]))
+        
+        with open(os.path.join(word_level_dir, f"{split}.text"), "w") as f:
+            f.write("\n".join([f"{file[:-4]}" for file in files]))
+        
+        with open(os.path.join(word_level_dir, f"{split}.files"), "w") as f:
+            f.write("\n".join([f"{file[:-4]}" for file in files]))
+        
+        # Create sentence level files (same as word level for now)
+        for ext in [".skels", ".gloss", ".text", ".files"]:
+            src = os.path.join(word_level_dir, f"{split}{ext}")
+            dst = os.path.join(sentence_level_dir, f"{split}{ext}")
+            if not os.path.exists(dst):
+                os.symlink(os.path.abspath(src), dst)
+    
+    # Create all.* files
+    for level in ["word_level", "sentence_level"]:
+        for ext in [".skels", ".gloss", ".text", ".files"]:
+            with open(os.path.join(output_dir, level, f"all{ext}"), "w") as f:
+                for split in ["train", "dev", "test"]:
+                    with open(os.path.join(output_dir, level, f"{split}{ext}"), "r") as split_file:
+                        f.write(split_file.read() + "\n")
+
+def main():
+    parser = argparse.ArgumentParser(description="Process ISL-CSLRT dataset")
+    parser.add_argument("--skip-face", action="store_true", help="Skip face landmarks extraction")
+    parser.add_argument("--data-dir", default="Data/raw", help="Directory containing raw videos")
+    parser.add_argument("--output-dir", default="Data/features/mediapipe", help="Directory to save processed features")
+    parser.add_argument("--phoenix-dir", default="Data/isl_dataset", help="Directory to save Phoenix format files")
+    args = parser.parse_args()
+    
+    # Process videos
+    print("Processing videos...")
+    video_files = [f for f in os.listdir(args.data_dir) if f.endswith(('.mp4', '.avi', '.mov'))]
+    
+    for video_file in tqdm(video_files):
+        video_path = os.path.join(args.data_dir, video_file)
+        process_video(video_path, args.output_dir, args.skip_face)
+    
+    # Create Phoenix format files
+    print("Creating Phoenix format files...")
+    create_phoenix_format_files(args.output_dir, args.phoenix_dir)
+    
+    print("Done!")
+
+if __name__ == "__main__":
+    main() 
