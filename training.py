@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
-from torchtext.data import Dataset
+from torchtext.legacy.data import Dataset  # For torchtext ≥0.9
 
 from model import build_model
 from batch import Batch
@@ -438,9 +438,10 @@ class TrainManager:
             input = inputs[i]
             # Write gloss label
             gloss_label = input[0]
-            if input[1] is not "</s>":
+            if input[1] != "</s>":
                 gloss_label += "_" + input[1]
-            if input[2] is not "</s>":
+            # Line 443:
+            if input[2] != "</s>":
                 gloss_label += "_" + input[2]
 
             # Alter the dtw timing of the produced sequence, and collect the DTW score
@@ -625,7 +626,7 @@ def test(cfg_file,
                 eval_metric=eval_metric,
                 loss_function=None,
                 batch_type=batch_type,
-                type="val" if not data_set_name is "train" else "train_inf"
+                type="val" if data_set_name != "train" else "train_inf"
             )
 
         # Set which sequences to produce video for
