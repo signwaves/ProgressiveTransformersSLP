@@ -97,7 +97,7 @@ def extract_mediapipe_features(video_path: str, skip_face: bool = False) -> Dict
     cap.release()
     return features
 
-def process_video(video_path: str, output_dir: str, skip_face: bool = False) -> str:
+def process_video(video_path: str, output_dir: str, skip_face: bool = False, output_name: str = None) -> str:
     """
     Process a single video and save its features.
     
@@ -105,6 +105,7 @@ def process_video(video_path: str, output_dir: str, skip_face: bool = False) -> 
         video_path: Path to the video file
         output_dir: Directory to save features
         skip_face: Whether to skip face landmarks extraction
+        output_name: Optional name for the output file (without extension)
         
     Returns:
         Path to the saved features file
@@ -119,8 +120,12 @@ def process_video(video_path: str, output_dir: str, skip_face: bool = False) -> 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
-    # Save features
-    output_path = os.path.join(output_dir, f"{Path(video_path).stem}.npy")
+    # Save features using the provided name or default to video filename
+    if output_name:
+        output_path = os.path.join(output_dir, f"{output_name}.npy")
+    else:
+        output_path = os.path.join(output_dir, f"{Path(video_path).stem}.npy")
+    
     np.save(output_path, features)
     print(f"Saved features to: {output_path}")
     
@@ -257,19 +262,20 @@ def main():
             print(f"Warning: No video files found in directory: {sentence_dir}")
             continue
             
+        # Create output filename from the sentence
+        output_name = sentence.replace(' ', '_')
+        
         # Process each video in the sentence directory
         for video_path in video_files:
-            # Create a features filename that includes the sentence
-            features_filename = f"{sentence.replace(' ', '_')}.npy"
-            output_path = os.path.join(args.output_dir, features_filename)
-            
-            # Process the video
-            result = process_video(video_path, args.output_dir, args.skip_face)
+            # Process the video using the sentence name
+            result = process_video(video_path, args.output_dir, args.skip_face, output_name=output_name)
             
             if result:
                 # Also save the sentence text for later use
-                with open(os.path.join(args.output_dir, f"{sentence.replace(' ', '_')}.txt"), 'w') as f:
+                with open(os.path.join(args.output_dir, f"{output_name}.txt"), 'w') as f:
                     f.write(sentence)
+                # Only process one video per sentence directory
+                break
     
     # Create Phoenix format files
     print("Creating Phoenix format files...")
