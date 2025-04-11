@@ -217,23 +217,59 @@ def main():
     if not os.path.exists(args.data_dir):
         print(f"Error: Data directory {args.data_dir} does not exist")
         return
-        
-    # List all video files
-    video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv')
-    video_files = [f for f in os.listdir(args.data_dir) if f.lower().endswith(video_extensions)]
     
-    if not video_files:
-        print(f"Error: No video files found in {args.data_dir}")
-        print(f"Supported extensions: {', '.join(video_extensions)}")
+    # Look for videos in the ISL_CSLRT_Corpus structure
+    video_dir = os.path.join(args.data_dir, "ISL_CSLRT_Corpus", "ISL_CSLRT_Corpus", "Videos_Sentence_Level")
+    if not os.path.exists(video_dir):
+        print(f"Error: Video directory not found at {video_dir}")
         return
         
-    print(f"Found {len(video_files)} video files to process")
+    print(f"Searching for videos in: {video_dir}")
     
-    # Process videos
+    # Get all sentence directories
+    sentence_dirs = []
+    sentences = []
+    for entry in os.listdir(video_dir):
+        full_path = os.path.join(video_dir, entry)
+        if os.path.isdir(full_path) and not entry.startswith('.'):
+            sentence_dirs.append(full_path)
+            # Remove quotes from directory name to get the sentence
+            sentence = entry.strip("'")
+            sentences.append(sentence)
+    
+    if not sentence_dirs:
+        print(f"Error: No sentence directories found in {video_dir}")
+        return
+        
+    print(f"Found {len(sentence_dirs)} sentence directories to process")
+    
+    # Process each sentence directory
     print("Processing videos...")
-    for video_file in tqdm(video_files):
-        video_path = os.path.join(args.data_dir, video_file)
-        process_video(video_path, args.output_dir, args.skip_face)
+    for sentence_dir, sentence in tqdm(zip(sentence_dirs, sentences), total=len(sentence_dirs)):
+        # Look for video files in the sentence directory
+        video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv')
+        video_files = []
+        for file in os.listdir(sentence_dir):
+            if file.lower().endswith(video_extensions):
+                video_files.append(os.path.join(sentence_dir, file))
+        
+        if not video_files:
+            print(f"Warning: No video files found in directory: {sentence_dir}")
+            continue
+            
+        # Process each video in the sentence directory
+        for video_path in video_files:
+            # Create a features filename that includes the sentence
+            features_filename = f"{sentence.replace(' ', '_')}.npy"
+            output_path = os.path.join(args.output_dir, features_filename)
+            
+            # Process the video
+            result = process_video(video_path, args.output_dir, args.skip_face)
+            
+            if result:
+                # Also save the sentence text for later use
+                with open(os.path.join(args.output_dir, f"{sentence.replace(' ', '_')}.txt"), 'w') as f:
+                    f.write(sentence)
     
     # Create Phoenix format files
     print("Creating Phoenix format files...")
