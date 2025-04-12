@@ -5,13 +5,15 @@ Data module
 import sys
 import os
 import os.path
+import io
 from typing import Optional, Tuple
 
 import torch
+from torch.utils.data import Dataset
 
 from constants import UNK_TOKEN, EOS_TOKEN, BOS_TOKEN, PAD_TOKEN, TARGET_PAD
 from vocabulary import build_vocab, Vocabulary
-from data_loader import SignDataset, Field, make_data_loader
+from data_loader import SignDataset, Field, make_data_loader, Example
 
 # Load the Regression Data
 # Data format should be parallel .txt files for src, trg and files
@@ -178,42 +180,20 @@ class SignProdDataset(SignDataset):
             exts: A tuple containing the extension to path for each language.
             fields: A tuple containing the fields that will be used for data
                 in each language.
-            Remaining keyword arguments: Passed to the constructor of
-                data.Dataset.
+            trg_size: Target size for each frame
+            skip_frames: Number of frames to skip
+            Remaining keyword arguments: Passed to the constructor of data.Dataset.
         """
 
         if not isinstance(fields[0], (tuple, list)):
             fields = [('src', fields[0]), ('trg', fields[1]), ('file_paths', fields[2])]
 
-        src_path, trg_path, file_path = tuple(os.path.expanduser(path + x) for x in exts)
-
-        examples = []
-        # Extract the parallel src, trg and file files
-        with io.open(src_path, mode='r', encoding='utf-8') as src_file, \
-                io.open(trg_path, mode='r', encoding='utf-8') as trg_file, \
-                    io.open(file_path, mode='r', encoding='utf-8') as files_file:
-
-            i = 0
-            # For Source, Target and FilePath
-            for src_line, trg_line, files_line in zip(src_file, trg_file, files_file):
-                i+= 1
-
-                # Strip away the "\n" at the end of the line
-                src_line, trg_line, files_line = src_line.strip(), trg_line.strip(), files_line.strip()
-
-                # Split target into joint coordinate values
-                trg_line = trg_line.split(" ")
-                if len(trg_line) == 1:
-                    continue
-                # Turn each joint into a float value, with 1e-8 for numerical stability
-                trg_line = [(float(joint) + 1e-8) for joint in trg_line]
-                # Split up the joints into frames, using trg_size as the amount of coordinates in each frame
-                # If using skip frames, this just skips over every Nth frame
-                trg_frames = [trg_line[i:i + trg_size] for i in range(0, len(trg_line), trg_size*skip_frames)]
-
-                # Create a dataset examples out of the Source, Target Frames and FilesPath
-                if src_line != '' and trg_line != '':
-                    examples.append(data.Example.fromlist(
-                        [src_line, trg_frames, files_line], fields))
-
-        super(SignProdDataset, self).__init__(examples, fields, **kwargs)
+        # Call the parent class constructor with the parameters it expects
+        super(SignProdDataset, self).__init__(
+            path=path,
+            exts=exts,
+            fields=fields,
+            trg_size=trg_size,
+            skip_frames=skip_frames,
+            **kwargs
+        )
