@@ -75,7 +75,12 @@ class SignDataset(Dataset):
                  trg_size: int, skip_frames: int = 1,
                  filter_pred: Optional[callable] = None):
         self.examples = []
-        self.fields = dict(zip(['src', 'trg', 'file_paths'], fields))
+        
+        # Convert fields to dictionary format if needed
+        if isinstance(fields[0], (tuple, list)):
+            self.fields = dict(fields)
+        else:
+            self.fields = dict(zip(['src', 'trg', 'file_paths'], fields))
 
         src_path, trg_path, file_path = [os.path.expanduser(path + x) for x in exts]
 

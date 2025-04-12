@@ -7,6 +7,7 @@ import numpy as np
 
 import torch
 from torch import Tensor
+from torch.utils.data import Dataset, DataLoader  # Add Dataset to import
 from torch.utils.tensorboard import SummaryWriter
 from data_loader import SignDataset
 

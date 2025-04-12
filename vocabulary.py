@@ -12,7 +12,6 @@ from collections import Counter
 
 from constants import UNK_TOKEN, DEFAULT_UNK_ID, \
     EOS_TOKEN, BOS_TOKEN, PAD_TOKEN
-from data_loader import SignDataset
 
 
 class Vocabulary:
@@ -128,7 +127,7 @@ class Vocabulary:
         return sentences
 
 
-def build_vocab(field: str, max_size: int, min_freq: int, dataset: SignDataset,
+def build_vocab(field: str, max_size: int, min_freq: int, dataset,
                 vocab_file: Optional[str] = None) -> Vocabulary:
     """
     Builds vocabulary for a field from given dataset or vocab_file.
