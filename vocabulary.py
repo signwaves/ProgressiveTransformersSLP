@@ -7,10 +7,12 @@ from collections import defaultdict, Counter
 from typing import List
 import numpy as np
 
-from torchtext.data import Dataset
+from typing import List, Optional
+from collections import Counter
 
 from constants import UNK_TOKEN, DEFAULT_UNK_ID, \
     EOS_TOKEN, BOS_TOKEN, PAD_TOKEN
+from data_loader import SignDataset
 
 
 class Vocabulary:
@@ -18,7 +20,6 @@ class Vocabulary:
 
     def __init__(self, tokens: List[str] = None, file: str = None) -> None:
 
-        # don't rename stoi and itos since needed for torchtext
         # warning: stoi grows with unknown tokens, don't use for saving or size
 
         # special symbols
@@ -127,11 +128,10 @@ class Vocabulary:
         return sentences
 
 
-def build_vocab(field: str, max_size: int, min_freq: int, dataset: Dataset,
-                vocab_file: str = None) -> Vocabulary:
+def build_vocab(field: str, max_size: int, min_freq: int, dataset: SignDataset,
+                vocab_file: Optional[str] = None) -> Vocabulary:
     """
-    Builds vocabulary for a torchtext `field` from given`dataset` or
-    `vocab_file`.
+    Builds vocabulary for a field from given dataset or vocab_file.
 
     :param field: attribute e.g. "src"
     :param max_size: maximum size of vocabulary
@@ -139,7 +139,7 @@ def build_vocab(field: str, max_size: int, min_freq: int, dataset: Dataset,
     :param dataset: dataset to load data for field from
     :param vocab_file: file to store the vocabulary,
         if not None, load vocabulary from here
-    :return: Vocabulary created from either `dataset` or `vocab_file`
+    :return: Vocabulary created from either dataset or vocab_file
     """
 
     if vocab_file is not None:

@@ -18,7 +18,7 @@ import torch
 from torch import nn, Tensor
 from torch.utils.tensorboard import SummaryWriter
 
-from torchtext.data import Dataset
+from data_loader import SignDataset
 import yaml
 from vocabulary import Vocabulary
 

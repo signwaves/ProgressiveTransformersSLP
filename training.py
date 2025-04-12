@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
-from torchtext.data import Dataset
+from data_loader import SignDataset
 
 from model import build_model
 from batch import Batch
@@ -280,7 +280,7 @@ class TrainManager:
                 # reactivate training
                 self.model.train()
 
-                # create a Batch object from torchtext batch
+                # create a Batch object from the data batch
                 batch = Batch(torch_batch=batch,
                               pad_index=self.pad_index,
                               model=self.model)

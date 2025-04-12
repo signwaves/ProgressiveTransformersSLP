@@ -5,16 +5,13 @@ Data module
 import sys
 import os
 import os.path
-from typing import Optional
-import io
+from typing import Optional, Tuple
 
-# from torchtext.datasets import TranslationDataset
-from torchtext import data
-from torchtext.data import Dataset, Iterator, Field
 import torch
 
 from constants import UNK_TOKEN, EOS_TOKEN, BOS_TOKEN, PAD_TOKEN, TARGET_PAD
 from vocabulary import build_vocab, Vocabulary
+from data_loader import SignDataset, Field, make_data_loader
 
 # Load the Regression Data
 # Data format should be parallel .txt files for src, trg and files
@@ -67,33 +64,22 @@ def load_data(cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
     tok_fun = lambda s: list(s) if level == "char" else s.split()
 
     # Source field is a tokenised version of the source words
-    src_field = data.Field(init_token=None, eos_token=EOS_TOKEN,
-                           pad_token=PAD_TOKEN, tokenize=tok_fun,
-                           batch_first=True, lower=lowercase,
-                           unk_token=UNK_TOKEN,
-                           include_lengths=True)
+    src_field = Field(init_token=None, eos_token=EOS_TOKEN,
+                     pad_token=PAD_TOKEN, tokenize=tok_fun,
+                     batch_first=True, lower=lowercase,
+                     unk_token=UNK_TOKEN,
+                     include_lengths=True)
 
     # Files field is just a raw text field
-    files_field = data.RawField()
-
-    def tokenize_features(features):
-        features = torch.as_tensor(features)
-        ft_list = torch.split(features, 1, dim=0)
-        return [ft.squeeze() for ft in ft_list]
-
-    def stack_features(features, something):
-        return torch.stack([torch.stack(ft, dim=0) for ft in features], dim=0)
+    files_field = Field(use_vocab=False, tokenize=lambda x: x)
 
     # Creating a regression target field
     # Pad token is a vector of output size, containing the constant TARGET_PAD
-    reg_trg_field = data.Field(sequential=True,
-                               use_vocab=False,
-                               dtype=torch.float32,
-                               batch_first=True,
-                               include_lengths=False,
-                               pad_token=torch.ones((trg_size,))*TARGET_PAD,
-                               preprocessing=tokenize_features,
-                               postprocessing=stack_features,)
+    reg_trg_field = Field(use_vocab=False,
+                         dtype=torch.float32,
+                         batch_first=True,
+                         include_lengths=False,
+                         pad_token=torch.ones((trg_size,))*TARGET_PAD)
 
     # Create the Training Data, using the SignProdDataset
     train_data = SignProdDataset(path=train_path,
@@ -158,45 +144,31 @@ def token_batch_size_fn(new, count, sofar):
     return max(src_elements, tgt_elements)
 
 
-def make_data_iter(dataset: Dataset,
+def make_data_iter(dataset: SignDataset,
                    batch_size: int,
                    batch_type: str = "sentence",
                    train: bool = False,
-                   shuffle: bool = False) -> Iterator:
+                   shuffle: bool = False) -> torch.utils.data.DataLoader:
     """
-    Returns a torchtext iterator for a torchtext dataset.
+    Returns a DataLoader for the dataset.
 
-    :param dataset: torchtext dataset containing src and optionally trg
+    :param dataset: SignDataset containing src and optionally trg
     :param batch_size: size of the batches the iterator prepares
     :param batch_type: measure batch size by sentence count or by token count
-    :param train: whether it's training time, when turned off,
-        bucketing, sorting within batches and shuffling is disabled
+    :param train: whether it's training time
     :param shuffle: whether to shuffle the data before each epoch
-        (no effect if set to True for testing)
-    :return: torchtext iterator
+    :return: PyTorch DataLoader
     """
-
-    batch_size_fn = token_batch_size_fn if batch_type == "token" else None
-
-    if train:
-        # optionally shuffle and sort during training
-        data_iter = data.BucketIterator(
-            repeat=False, sort=False, dataset=dataset,
-            batch_size=batch_size, batch_size_fn=batch_size_fn,
-            train=True, sort_within_batch=True,
-            sort_key=lambda x: len(x.src), shuffle=shuffle)
-    else:
-        # don't sort/shuffle for validation/inference
-        data_iter = data.BucketIterator(
-            repeat=False, dataset=dataset,
-            batch_size=batch_size, batch_size_fn=batch_size_fn,
-            train=False, sort=False)
-
-    return data_iter
+    return make_data_loader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=shuffle and train,
+        pad_idx=dataset.fields['src'].vocab.stoi[PAD_TOKEN]
+    )
 
 # Main Dataset Class
-class SignProdDataset(data.Dataset):
-    """Defines a dataset for machine translation."""
+class SignProdDataset(SignDataset):
+    """Defines a dataset for sign language production."""
 
     def __init__(self, path, exts, fields, trg_size, skip_frames=1, **kwargs):
         """Create a TranslationDataset given paths and fields.

@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 import torch
-from torchtext.data import Dataset
+from data_loader import SignDataset
 
 from helpers import bpe_postprocess, load_config, get_latest_checkpoint, \
     load_checkpoint, calculate_dtw
@@ -14,7 +14,7 @@ from constants import UNK_TOKEN, PAD_TOKEN, EOS_TOKEN
 
 # Validate epoch given a dataset
 def validate_on_data(model: Model,
-                     data: Dataset,
+                     data: SignDataset,
                      batch_size: int,
                      max_output_length: int,
                      eval_metric: str,
